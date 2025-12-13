@@ -21,6 +21,8 @@ primarily for sheet metal flat patterns to allow easier hand folding.
 
 ## Author
 John Hyslop
+## FreeCAD Version
+Tested on FreeCAD 1.02
 
 ## License
 Free for personal and educational use. Please credit the author.
