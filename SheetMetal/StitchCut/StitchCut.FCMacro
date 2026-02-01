@@ -1,0 +1,240 @@
+import FreeCAD as app
+import FreeCADGui as gui
+from PySide2.QtWidgets import QDialog, QDoubleSpinBox, QSpinBox, QFormLayout, QLabel, QDialogButtonBox, QMessageBox
+import Part
+
+"""
+SheetMetal/StitchCut.FCMacro
+
+Author: John Hyslop
+Description:
+    This FreeCAD macro allows you to create evenly spaced "stitch cuts" along a selected
+    straight line in a sketch. The user can specify the start & end offsets, gap between cuts,
+    and number of cuts. The macro will calculate the cut lengths and insert them directly into the sketch.
+"""
+
+# --- Macro Metadata ---
+__Name__ = "StitchCut"
+__Comment__ = "Creates evenly spaced stitch cuts along a selected line in a sketch, for hand-folding sheet metal."
+__Author__ = "John Hyslop"
+__Date__ = "2025-12-15"
+__Version__ = "1.1"
+__License__ = "Free for personal, educational, and commercial use. Please credit the author."
+__Web__ = "https://github.com/JohnHyslop/MyFreeCADMacros/StitchCut"
+__Wiki__ = "https://wiki.freecad.org/StitchCut"
+__Icon__ = "StitchCut.svg"
+__Xpm__ = ""
+__Help__ = "Select a line in a sketch, run macro, and define offsets, gap, and number of cuts."
+__Status__ = "Stable"
+__Requires__ = "FreeCAD >= 1.0.2"
+__Communication__ = "https://github.com/JohnHyslop/MyFreeCADMacros/issues"
+__Files__ = "SheetMetal/StitchCut.FCMacro"
+# --- End of Metadata ---
+
+# --- Dialog Class ---
+class StitchCutDialog(QDialog):
+    """
+    Dialog for user input to define stitch cuts along a line in the sketch.
+    It allows the user to define offsets, gap, number of cuts, and width of the cuts.
+    The settings are saved to FreeCAD's persistent configuration system to remember the user's preferences between runs.
+    """
+
+    def __init__(self, line_length: float, parent=None):
+        """
+        Initializes the dialog, loads previous settings from FreeCAD's preferences, 
+        and sets up the user input fields.
+        """
+        super().__init__(parent)
+        self.setWindowTitle("Stitch Cut Parameters")
+        self.line_length = line_length
+
+        # User input fields for stitch cut parameters
+        self.edge_offset_edit = QDoubleSpinBox()
+        self.gap_edit = QDoubleSpinBox()
+        self.num_cuts_edit = QSpinBox()
+        self.cut_length_display = QLabel("0")
+        
+        # Cut width input (for width of each cut)
+        self.cut_width_edit = QDoubleSpinBox()
+
+        # Load previous settings from FreeCAD's preferences
+        self.load_previous_settings()
+
+        # Create layout
+        layout = QFormLayout()
+        layout.addRow("Start & End Offset:", self.edge_offset_edit)
+        layout.addRow("Gap between cuts:", self.gap_edit)
+        layout.addRow("Number of Cuts:", self.num_cuts_edit)
+        layout.addRow("Cut Width:", self.cut_width_edit)  # Direct input for cut width
+        layout.addRow("Calculated Cut Length:", self.cut_length_display)
+
+        # Add hint label for Cut Width
+        self.cut_width_hint = QLabel("0 width = 1 cut line")
+        layout.addRow(self.cut_width_hint)  # Add the hint text below the input field
+
+        # Create buttons for Ok and Cancel
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.setLayout(layout)
+
+        # Update calculated cut length dynamically as the user modifies inputs
+        self.edge_offset_edit.valueChanged.connect(self.update_cut_length)
+        self.gap_edit.valueChanged.connect(self.update_cut_length)
+        self.num_cuts_edit.valueChanged.connect(self.update_cut_length)
+        self.update_cut_length()
+
+    def update_cut_length(self) -> None:
+        """ Updates the cut length based on user inputs for offsets, gaps, and number of cuts. """
+        try:
+            edge_offset = self.edge_offset_edit.value()
+            gap = self.gap_edit.value()
+            num = self.num_cuts_edit.value()
+            usable = self.line_length - 2 * edge_offset - (num - 1) * gap
+            if usable <= 0:
+                self.cut_length_display.setText("N/A")
+            else:
+                self.cut_length_display.setText(f"{usable / num:.3f}")
+        except:
+            self.cut_length_display.setText("Error")
+
+    def load_previous_settings(self) -> None:
+        """ Loads previously saved settings from FreeCAD's preferences. """
+        try:
+            parameter_group = app.ParamGet("User parameter:BaseApp/Preferences/Macros/StitchCut")
+
+            # Load settings into the dialog fields, with default values if not available
+            self.edge_offset_edit.setValue(parameter_group.GetFloat("EdgeOffset", 3.0))
+            self.gap_edit.setValue(parameter_group.GetFloat("Gap", 3.0))
+            self.num_cuts_edit.setValue(parameter_group.GetInt("NumCuts", 5))
+            self.cut_width_edit.setValue(parameter_group.GetFloat("CutWidth", 1.0))
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+
+    def save_settings(self) -> None:
+        """ Saves the current settings to FreeCAD's preferences. """
+        try:
+            parameter_group = app.ParamGet("User parameter:BaseApp/Preferences/Macros/StitchCut")
+            parameter_group.SetFloat("EdgeOffset", self.edge_offset_edit.value())
+            parameter_group.SetFloat("Gap", self.gap_edit.value())
+            parameter_group.SetInt("NumCuts", self.num_cuts_edit.value())
+            parameter_group.SetFloat("CutWidth", self.cut_width_edit.value())
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+
+    def getValues(self) -> tuple:
+        """ Returns user-defined values for stitch cuts (offset, gap, number of cuts, cut length, cut width). """
+        try:
+            edge_offset = self.edge_offset_edit.value()
+            gap = self.gap_edit.value()
+            num = self.num_cuts_edit.value()
+            usable = self.line_length - 2 * edge_offset - (num - 1) * gap
+            if usable <= 0:
+                return None
+            cut_length = usable / num
+            cut_width = self.cut_width_edit.value()
+            return edge_offset, gap, num, cut_length, cut_width
+        except:
+            return None
+
+# --- Get selected line ---
+def get_selected_line() -> tuple:
+    """ Retrieves the selected line in the sketch and ensures it is valid. """
+    sel = gui.Selection.getSelectionEx()
+    if len(sel) != 1:
+        QMessageBox.critical(None, "Error", "Select exactly one line in a sketch.")
+        return None, None
+    sk = sel[0].Object
+    if sk.TypeId != "Sketcher::SketchObject":
+        QMessageBox.critical(None, "Error", "Selection is not a sketch.")
+        return None, None
+    if len(sel[0].SubElementNames) != 1:
+        QMessageBox.critical(None, "Error", "Select exactly one edge.")
+        return None, None
+    edge_name = sel[0].SubElementNames[0]
+    idx = int(edge_name.replace("Edge", "")) - 1
+    geo = sk.Geometry[idx]
+    if geo.TypeId != 'Part::GeomLineSegment':
+        QMessageBox.critical(None, "Error", "Selected geometry is not a straight line.")
+        return None, None
+    return sk, idx
+
+# --- Main macro ---
+def stitch_cut() -> None:
+    """ Main function to apply stitch cuts to a selected line in the sketch. """
+    sk, idx = get_selected_line()
+    if not sk:
+        return
+
+    line = sk.Geometry[idx]
+    p1 = line.StartPoint
+    p2 = line.EndPoint
+
+    vec = p2.sub(p1)
+    length = vec.Length
+    direction = vec.normalize()
+
+    # Open the dialog for user input
+    dlg = StitchCutDialog(length)
+    if dlg.exec_() != QDialog.Accepted:  # Make sure to use QDialog directly
+        return
+
+    values = dlg.getValues()
+    if not values:
+        QMessageBox.critical(None, "Error", "Invalid parameters, cuts won't fit.")
+        return
+    edge_offset, gap, num_cuts, cut_length, cut_width = values
+
+    # Save the settings for next time
+    dlg.save_settings()
+
+    # Open transaction for undo
+    app.activeDocument().openTransaction("Stitch Cut")
+
+    # Remove original line
+    sk.delGeometry(idx)
+
+    # Add stitch cuts to the sketch
+    for i in range(num_cuts):
+        start_dist = edge_offset + i * (cut_length + gap)
+        end_dist = start_dist + cut_length
+        if end_dist > length - edge_offset:
+            end_dist = length - edge_offset
+        ptA = app.Vector(p1.x + direction.x * start_dist,
+                         p1.y + direction.y * start_dist,
+                         p1.z + direction.z * start_dist)
+        ptB = app.Vector(p1.x + direction.x * end_dist,
+                         p1.y + direction.y * end_dist,
+                         p1.z + direction.z * end_dist)
+
+        # If width is specified, create a rectangular slot, otherwise, just a single line
+        if cut_width > 0:
+            # Calculate the offset points for width
+            width_vec = direction.cross(app.Vector(0, 0, 1)).normalize() * (cut_width / 2)
+            ptA_left = ptA.sub(width_vec)
+            ptB_left = ptB.sub(width_vec)
+            ptA_right = ptA.add(width_vec)
+            ptB_right = ptB.add(width_vec)
+
+            # Add the rectangle for the slot
+            sk.addGeometry(Part.LineSegment(ptA_left, ptB_left), False)
+            sk.addGeometry(Part.LineSegment(ptB_left, ptB_right), False)
+            sk.addGeometry(Part.LineSegment(ptB_right, ptA_right), False)
+            sk.addGeometry(Part.LineSegment(ptA_right, ptA_left), False)
+        else:
+            # Add a single line (when width is not enabled)
+            sk.addGeometry(Part.LineSegment(ptA, ptB), False)
+
+    # Recompute the document to apply the changes
+    sk.Document.recompute()
+
+    # Commit the transaction
+    app.activeDocument().commitTransaction()
+
+    # Notify the user that the operation is complete
+    QMessageBox.information(None, "Done", "Stitch cuts applied!")
+
+# --- Run the macro ---
+stitch_cut()
