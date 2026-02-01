@@ -36,7 +36,7 @@ The **StitchCut** macro is designed for creating evenly spaced “stitch cuts”
 **Use Case:**  
 - Hand-folding sheet metal parts accurately and efficiently.  
 
-**Author:** John Hyslop, with a little extra help from ChatGPT.  
+**Author:** John Hyslop
 
 **Usage:**  
 1. Enter **edit mode** on the sketch containing your fold line.  
@@ -49,7 +49,7 @@ The **StitchCut** macro is designed for creating evenly spaced “stitch cuts”
 ---
 
 ## How to Use These Macros
-1. Copy the `.py` macro files into your FreeCAD macros folder or a dedicated subfolder.  
+1. Copy the `.FCMacro` files into your FreeCAD macros folder or a dedicated subfolder.  
 2. Open FreeCAD and navigate to `Macro → Macros...`.  
 3. Select the macro you want to run and click **Execute**.  
 4. Follow the prompts provided by each macro.  
