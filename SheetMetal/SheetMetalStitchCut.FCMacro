@@ -4,7 +4,7 @@ from PySide2.QtWidgets import QDialog, QDoubleSpinBox, QSpinBox, QFormLayout, QL
 import Part
 
 """
-SheetMetal/StitchCut.FCMacro
+SheetMetalStitchCut.FCMacro
 
 Author: John Hyslop
 Description:
